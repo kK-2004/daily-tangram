@@ -148,6 +148,20 @@ create policy "daily anon insert" on public.daily_puzzles
   for insert to anon with check (true);
 
 -- ============================================================
+-- 3.5 表级权限
+-- ------------------------------------------------------------
+-- 新建的 Supabase 项目不再自动给 public 下新表授予 anon /
+-- service_role 权限，RLS 策略只在已有表权限的前提下生效；缺这一步
+-- 时 REST 请求返回 401「permission denied for table」(42501)。
+-- ============================================================
+grant select, insert on public.completions   to anon, authenticated;
+grant select         on public.global_stats  to anon, authenticated;
+grant select, insert on public.daily_puzzles to anon, authenticated;
+-- Edge Function 用 service_role 做 upsert（insert + on conflict update）
+grant select, insert, update on public.daily_puzzles to service_role;
+grant select, insert, update on public.completions, public.global_stats to service_role;
+
+-- ============================================================
 -- 4.（可选）定时任务：Dashboard → Integrations → Cron 里创建两个任务
 --    （pg_cron 一律按 UTC 调度，注意换算成北京时间）
 -- ============================================================
