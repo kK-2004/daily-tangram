@@ -1,0 +1,24 @@
+{
+  "id": "paper",
+  "name": "宣纸朱印",
+  "dark": false,
+  "vars": {
+    "bg": "#efe8db",
+    "bg-art": "radial-gradient(1000px 600px at 10% -10%, #faf5ea 0%, transparent 60%)",
+    "panel": "#f9f5ec",
+    "panel-edge": "#e0d4bd",
+    "ink": "#2a231b",
+    "muted": "#857762",
+    "line": "#cbbb9d",
+    "board": "#8a6f4c",
+    "cell": "#f6efe0",
+    "cell-month": "#efe4cc",
+    "cell-week": "#ece2d0",
+    "cell-ink": "#5a4b36",
+    "accent": "#b5302a",
+    "target-bg": "#fff5ef",
+    "shadow": "rgba(60,40,10,.28)",
+    "piece-stroke": "rgba(40,28,12,.55)"
+  },
+  "pieces": ["#c8553d", "#e3a72f", "#2f6f8f", "#4f7c5a", "#6c5b7b", "#9c5b3b", "#6fa8b5", "#a83f5b", "#b5a642", "#34495e", "#e6b980", "#789262"]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "ink",
+  "name": "水墨",
+  "dark": false,
+  "vars": {
+    "bg": "#ecebe6",
+    "bg-art": "radial-gradient(800px 500px at 90% 110%, rgba(0,0,0,.06) 0%, transparent 60%)",
+    "panel": "#f8f7f3",
+    "panel-edge": "#d9d6ce",
+    "ink": "#1d1c1a",
+    "muted": "#7d7a73",
+    "line": "#bdb9af",
+    "board": "#2f2e2b",
+    "cell": "#fbfaf6",
+    "cell-month": "#f1efe9",
+    "cell-week": "#eeece5",
+    "cell-ink": "#3a3833",
+    "accent": "#c23b22",
+    "target-bg": "#fbeeea",
+    "shadow": "rgba(0,0,0,.3)",
+    "piece-stroke": "rgba(0,0,0,.65)",
+    "piece-gloss": ".18"
+  },
+  "pieces": ["#2b2b2b", "#56544f", "#7d7b75", "#a3a099", "#3f3e3a", "#c23b22", "#686661", "#8f8c85", "#4a4945", "#b4b0a8", "#605e59", "#99968e"]
+}

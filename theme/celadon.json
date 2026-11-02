@@ -1,0 +1,9 @@
+{
+  "id": "celadon",
+  "name": "青瓷",
+  "dark": false,
+  "vars": {
+    "bg-art": "radial-gradient(900px 520px at 85% -10%, #f2f6ef 0%, transparent 65%)"
+  },
+  "pieces": ["#d9734e", "#e8b04a", "#4f86b8", "#7aa865", "#9a6fb0", "#c9576f", "#5bb1a8", "#d4925a", "#6d7fcf", "#b5a33c", "#e08aa0", "#3f8f72"]
+}

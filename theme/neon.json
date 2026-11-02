@@ -1,0 +1,26 @@
+{
+  "id": "neon",
+  "name": "霓虹",
+  "dark": true,
+  "vars": {
+    "bg": "#0a0a14",
+    "bg-art": "radial-gradient(700px 420px at 15% 0%, rgba(255,43,214,.18) 0%, transparent 60%), radial-gradient(700px 420px at 95% 100%, rgba(0,240,255,.15) 0%, transparent 60%)",
+    "panel": "#11111e",
+    "panel-edge": "#2a2a48",
+    "ink": "#f0f0ff",
+    "muted": "#8484b0",
+    "line": "#3b3b66",
+    "board": "#06060d",
+    "cell": "#17172a",
+    "cell-month": "#1d1533",
+    "cell-week": "#13212c",
+    "cell-ink": "#8be9fd",
+    "accent": "#ff2bd6",
+    "accent-ink": "#ffffff",
+    "target-bg": "#2a0f2a",
+    "shadow": "rgba(0,0,0,.6)",
+    "piece-stroke": "rgba(255,255,255,.7)",
+    "piece-gloss": ".2"
+  },
+  "pieces": ["#ff2bd6", "#00e5ff", "#f5ff3b", "#39ff14", "#ff7a00", "#8a5cff", "#ff3864", "#00ffa3", "#ffd300", "#2fa8ff", "#ff8cf3", "#b4ff39"]
+}

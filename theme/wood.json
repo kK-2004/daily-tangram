@@ -1,0 +1,24 @@
+{
+  "id": "wood",
+  "name": "原木",
+  "dark": false,
+  "vars": {
+    "bg": "#e5d9c5",
+    "bg-art": "repeating-linear-gradient(92deg, rgba(120,80,40,.035) 0 3px, transparent 3px 11px)",
+    "panel": "#f2e9da",
+    "panel-edge": "#d6c3a3",
+    "ink": "#3a2614",
+    "muted": "#86684a",
+    "line": "#c2a67c",
+    "board": "#7b5230",
+    "cell": "#ecdcbf",
+    "cell-month": "#e4cfa9",
+    "cell-week": "#e7d3b0",
+    "cell-ink": "#5b3d20",
+    "accent": "#2f6b3c",
+    "target-bg": "#f7eedc",
+    "shadow": "rgba(70,40,10,.32)",
+    "piece-stroke": "rgba(50,25,5,.6)"
+  },
+  "pieces": ["#c8763d", "#e3b261", "#8d5a33", "#a8432f", "#d99a5b", "#6f8a4a", "#b07a4a", "#e6c48a", "#7b4b2a", "#c5a066", "#9e5f3a", "#5e7d4e"]
+}

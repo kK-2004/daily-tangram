@@ -1,0 +1,26 @@
+{
+  "id": "night",
+  "name": "夜空",
+  "dark": true,
+  "vars": {
+    "bg": "#0e1322",
+    "bg-art": "radial-gradient(900px 500px at 80% -10%, #243262 0%, transparent 60%), radial-gradient(600px 400px at 0% 100%, #2a1d4a 0%, transparent 60%)",
+    "panel": "#151c30",
+    "panel-edge": "#26304b",
+    "ink": "#e8ecf8",
+    "muted": "#8e99b8",
+    "line": "#36425f",
+    "board": "#0a0f1d",
+    "cell": "#1d2742",
+    "cell-month": "#232e4f",
+    "cell-week": "#1f2a48",
+    "cell-ink": "#aab7da",
+    "accent": "#ffcf5a",
+    "accent-ink": "#1a1405",
+    "target-bg": "#2c2b26",
+    "shadow": "rgba(0,0,0,.55)",
+    "piece-stroke": "rgba(255,255,255,.35)",
+    "piece-gloss": ".25"
+  },
+  "pieces": ["#ff7a8a", "#ffb86b", "#ffe07a", "#8be28b", "#5fd3c6", "#6cb6ff", "#9d8cff", "#e58cff", "#ff9fd1", "#b8e986", "#7ad7f0", "#f6a5a5"]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "sakura",
+  "name": "樱花",
+  "dark": false,
+  "vars": {
+    "bg": "#f7e9ec",
+    "bg-art": "radial-gradient(800px 480px at 90% -10%, #fff6f8 0%, transparent 60%)",
+    "panel": "#fff8f9",
+    "panel-edge": "#efcfd6",
+    "ink": "#3b2229",
+    "muted": "#9a6f79",
+    "line": "#e3b3be",
+    "board": "#b9667a",
+    "cell": "#fff5f7",
+    "cell-month": "#fbe7ec",
+    "cell-week": "#f6e9f3",
+    "cell-ink": "#7a3d4c",
+    "accent": "#3f6e5a",
+    "accent-ink": "#ffffff",
+    "target-bg": "#f1faf5",
+    "shadow": "rgba(120,40,60,.25)",
+    "piece-stroke": "rgba(90,30,45,.5)",
+    "piece-gloss": ".35",
+    "font-display": "\"Noto Serif SC\", serif"
+  },
+  "pieces": ["#f4a6b8","#e5738f","#fcd5ce","#c98bb9","#ffc6a5","#a8d5ba","#f7b2d9","#d77a96","#ffe1a8","#b5c7ed","#e8a0bf","#94c9a9"]
+}

@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#dfe7e0">
+<title>今天你拼了吗 · 每天拼出今天</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<!--
+  ============================================================
+  今天你拼了吗 原型 v3
+  ------------------------------------------------------------
+  · 单屏布局：整页不滚动，棋盘自适应窗口宽高
+  · 「怎么玩 → 关于零件」两步引导收进帮助模态框，
+    首次访问自动弹出，之后可点按钮栏的「？」再次打开
+  · 快捷键：Q 逆时针旋转 · W 翻转 · E 顺时针旋转（Esc 取消选中）
+  · 「拼什么」开关在按钮栏；移动端选中零件时右侧浮现旋转/翻转按钮
+  · 拼盘来源：接入 Supabase 后，每天 23:00 由 Edge Function 生成
+    下一天的全套拼盘写入 daily_puzzles 表，所有端统一读取；
+    未接入/取不到时回退为本机生成，且无解会自动重生成直到有解
+    —— 见 supabase-setup.sql 与 supabase/functions/gen-daily/
+  · 云端统计（可选）：完成弹窗显示「今日第 N 位 / 本次用时 / 今日最快」
+  · 提示次数：每天 1 次，经 HintProvider 抽象存取
+    （当前 localStorage，后续可整体替换为 Supabase 用户表实现）
+  ============================================================
+-->
+<style>
+:root{
+  --bg:#dfe7e0; --bg-art:none; --panel:#f3f6f1; --panel-edge:#c9d6cb;
+  --ink:#1e2b26; --muted:#5f7369; --line:#a9bcb0;
+  --board:#3f6b5c; --cell:#eef3ee; --cell-month:#e4ede7; --cell-week:#e7ecf2; --cell-ink:#2c4a40;
+  --accent:#2d4a8a; --accent-ink:#ffffff; --target-bg:#ffffff;
+  --shadow:rgba(20,40,30,.28); --piece-stroke:rgba(15,30,25,.55); --piece-gloss:.3;
+  --font-display:"Noto Serif SC","Songti SC","STSong",serif;
+  --font-body:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme]){
+    --bg:#0e1322; --panel:#151c30; --panel-edge:#26304b; --ink:#e8ecf8; --muted:#8e99b8; --line:#36425f;
+    --board:#0b1120; --cell:#1d2742; --cell-month:#222d4d; --cell-week:#1f2a47; --cell-ink:#aab7da;
+    --accent:#ffcf5a; --accent-ink:#1a1405; --target-bg:#2c2b26; color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%}
+body{
+  background-color:var(--bg); background-image:var(--bg-art); background-attachment:fixed;
+  color:var(--ink); font-family:var(--font-body); line-height:1.5; overflow:hidden;
+  -webkit-tap-highlight-color:transparent; transition:background-color .3s,color .3s;
+}
+.app{max-width:1200px;height:100%;margin:0 auto;display:flex;flex-direction:column;gap:10px;
+  padding:14px clamp(12px,3vw,32px) 12px}
+
+/* ---------- 顶部：日期即主角 ---------- */
+.top{flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px 32px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.seal{
+  width:42px;height:42px;border-radius:9px;background:var(--accent);color:var(--accent-ink);
+  display:grid;place-items:center;font-family:var(--font-display);font-weight:900;font-size:23px;
+  transform:rotate(-4deg);box-shadow:0 3px 0 var(--shadow);
+}
+.brand h1{margin:0;font-family:var(--font-display);font-size:19px;font-weight:900;letter-spacing:.08em}
+.brand p{margin:0;font-size:12.5px;color:var(--muted)}
+.today{display:flex;align-items:baseline;gap:8px 14px}
+.year{font-family:var(--font-display);color:var(--muted);font-size:14px}
+.big{
+  font-family:var(--font-display);font-weight:900;line-height:.95;
+  font-size:clamp(30px,4.6vw,54px);letter-spacing:-.01em;
+}
+.big.wk{font-size:clamp(20px,3vw,32px)}
+
+/* ---------- 按钮栏 ---------- */
+.bar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.bar-set{display:inline-flex;align-items:center;gap:8px}
+.field{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+select,button{
+  font:inherit;font-size:14px;color:var(--ink);background:var(--panel);
+  border:1.5px solid var(--panel-edge);border-radius:12px;min-height:38px;
+}
+select{cursor:pointer;padding:7px 8px}
+button{
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:7px 12px;font-weight:500;box-shadow:0 1.5px 0 var(--panel-edge);
+  transition:transform .12s,box-shadow .12s,border-color .15s,filter .15s,color .15s;
+}
+button:hover:not(:disabled){transform:translateY(-1px);border-color:var(--accent);box-shadow:0 4px 10px var(--shadow)}
+button:active:not(:disabled){transform:translateY(0);box-shadow:0 1px 2px var(--shadow)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button.primary{
+  background:var(--accent);color:var(--accent-ink);border-color:var(--accent);
+  font-weight:600;box-shadow:0 3px 8px var(--shadow);
+}
+button.primary:hover:not(:disabled){filter:brightness(1.08)}
+button .k{font-size:11px;font-weight:700;opacity:.6;border:1px solid currentColor;border-radius:5px;padding:0 4px;line-height:1.5}
+@media (hover:none),(max-width:860px){button .k{display:none}}
+.round{width:38px;padding:0;font-size:16px;font-weight:700}
+.spacer{flex:1}
+.sep{width:1px;height:26px;background:var(--panel-edge)}
+.seg-wrap{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+.seg{display:inline-flex;align-items:center;gap:2px;padding:3px;background:var(--panel);border:1.5px solid var(--panel-edge);border-radius:999px}
+.tog{border:none;background:transparent;box-shadow:none;border-radius:999px;min-height:28px;padding:4px 13px;font-size:13px;color:var(--muted)}
+.tog:hover:not(:disabled){transform:none;border:none;box-shadow:none;background:var(--bg)}
+.tog.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.tog.on:hover:not(:disabled){background:var(--accent)}
+
+/* ---------- 舞台 ---------- */
+.wrap{
+  position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+  background:var(--panel);border:1.5px solid var(--panel-edge);
+  border-radius:22px;padding:clamp(10px,2vw,22px);transition:background .3s;overflow:hidden;
+}
+.stage{position:relative;flex:none;margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.tray{
+  position:absolute;border:2px dashed var(--line);border-radius:16px;
+}
+.tray span{position:absolute;right:12px;bottom:8px;font-size:12px;color:var(--muted)}
+#board{position:absolute;left:0;top:0}
+.board-base{position:absolute;filter:drop-shadow(0 6px 10px var(--shadow))}
+.cell{
+  position:absolute;display:grid;place-items:center;border-radius:calc(var(--u) * .16);
+  background:var(--cell);color:var(--cell-ink);font-weight:600;
+  font-size:calc(var(--u) * .3);letter-spacing:-.02em;transition:background .3s,color .3s,box-shadow .3s;
+}
+.cell.month{background:var(--cell-month)}
+.cell.week{background:var(--cell-week);font-size:calc(var(--u) * .27)}
+.cell.day{font-family:var(--font-display);font-size:calc(var(--u) * .36)}
+.cell.target{
+  background:var(--target-bg);color:var(--accent);
+  box-shadow:inset 0 0 0 calc(var(--u) * .065) var(--accent);
+}
+#ghost{position:absolute;left:0;top:0;pointer-events:none;opacity:0;transition:opacity .1s}
+#ghost.on{opacity:1}
+#pieces{position:absolute;inset:0;pointer-events:none}
+.piece{
+  position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;
+  transition:transform .2s cubic-bezier(.2,.8,.3,1),filter .15s;will-change:transform;
+}
+.piece svg{display:block;overflow:visible;pointer-events:none}
+.piece .hit{pointer-events:visiblePainted;cursor:grab}
+.piece.dragging{transition:filter .15s;filter:drop-shadow(0 12px 14px var(--shadow))}
+.piece.dragging .hit{cursor:grabbing}
+.piece.sel{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 7px var(--accent))}
+.piece.loose:not(.dragging){opacity:.82}
+
+/* ---------- 移动端：选中零件时右侧浮现的操作按钮 ---------- */
+.fabs{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;
+  flex-direction:column;gap:12px;z-index:60}
+body.is-narrow .fabs{display:flex}
+body.is-narrow .fabs[hidden]{display:none}
+.fabs button{width:54px;height:54px;min-height:0;padding:0;border-radius:50%;font-size:19px;
+  background:var(--panel);box-shadow:0 4px 14px var(--shadow)}
+.fabs button:hover:not(:disabled){transform:none}
+body.is-narrow #btnRotCCW,body.is-narrow #btnRot,body.is-narrow #btnFlip{display:none}
+/* 移动端按钮栏：两列均匀网格，控件等宽对齐 */
+body.is-narrow .bar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+body.is-narrow .bar-set{display:contents}
+body.is-narrow .spacer,body.is-narrow .sep{display:none}
+body.is-narrow .field{width:100%}
+body.is-narrow .field select{flex:1;min-width:0}
+body.is-narrow .seg-wrap{width:100%;justify-content:space-between}
+body.is-narrow .seg{flex:1}
+body.is-narrow .tog{flex:1;justify-content:center}
+body.is-narrow #btnHelp.round{width:auto;min-width:0}
+
+/* ---------- 完成 ---------- */
+.win{
+  position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:50;
+}
+.win[hidden]{display:none}
+.win-card{
+  pointer-events:auto;min-width:min(320px,88%);background:var(--panel);border:2px solid var(--accent);
+  border-radius:18px;padding:20px 26px 22px;text-align:center;box-shadow:0 18px 40px var(--shadow);
+  animation:pop .45s cubic-bezier(.2,1.4,.4,1);
+}
+.win-card b{display:block;font-family:var(--font-display);font-size:28px;font-weight:900;margin-bottom:2px}
+.win-card>span{color:var(--muted);font-size:13.5px}
+.ws{margin:14px 0 2px;padding:10px 14px;background:var(--bg);border-radius:12px;display:grid;gap:6px;
+  text-align:left;font-size:14px}
+.ws-row{display:flex;justify-content:space-between;align-items:baseline;gap:18px}
+.ws .k{color:var(--muted);font-size:13px}
+.ws .v{font-weight:700;font-variant-numeric:tabular-nums}
+.ws-note{color:var(--muted);font-size:12.5px;text-align:center}
+.win-card button{margin-top:14px}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+.confetti{position:absolute;top:-10px;width:9px;height:14px;border-radius:2px;pointer-events:none;z-index:49;
+  animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(var(--fall)) rotate(var(--spin));opacity:.2}}
+
+/* ---------- 状态 ---------- */
+.status{flex:none;display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--muted);min-height:20px}
+.status .ok{color:var(--accent);font-weight:600}
+.status .bad{color:#c8412f;font-weight:600}
+kbd{font:inherit;font-size:12px;border:1px solid var(--panel-edge);border-bottom-width:2px;border-radius:5px;
+  padding:0 5px;background:var(--panel);color:var(--ink)}
+code{font-size:12.5px;background:var(--panel);border:1px solid var(--panel-edge);border-radius:5px;padding:0 4px}
+
+/* ---------- 帮助模态框 ---------- */
+.modal{position:fixed;inset:0;z-index:200;display:grid;place-items:center;padding:20px;
+  background:rgba(8,14,11,.45);backdrop-filter:blur(5px)}
+.modal[hidden]{display:none}
+.modal-card{width:min(560px,100%);max-height:min(78vh,620px);display:flex;flex-direction:column;
+  background:var(--panel);border:1.5px solid var(--panel-edge);border-radius:20px;
+  box-shadow:0 24px 60px var(--shadow);overflow:hidden;animation:pop .35s cubic-bezier(.2,1.4,.4,1)}
+.modal-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 14px 0}
+.tabs{display:inline-flex;gap:2px;padding:3px;background:var(--bg);border-radius:999px}
+.tab{border:none;background:transparent;box-shadow:none;border-radius:999px;min-height:30px;padding:5px 13px;
+  font-size:13.5px;color:var(--muted)}
+.tab:hover:not(:disabled){transform:none;box-shadow:none;border:none;color:var(--ink)}
+.tab.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.modal-body{padding:14px 20px 6px;overflow:auto;font-size:14px}
+.modal-body p{margin:0 0 8px;color:var(--muted)}
+.modal-body p:last-child{margin-bottom:14px}
+.modal-body b{color:var(--ink)}
+.modal-foot{flex:none;display:flex;justify-content:flex-end;gap:10px;padding:10px 16px 16px}
+
+#toast{
+  position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);
+  background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:14px;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:300;max-width:90vw;text-align:center;
+}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important}
+}
+@media (max-width:640px){
+  .spacer{display:none}
+  .brand p{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="seal" aria-hidden="true">拼</div>
+      <div>
+        <h1>今天你拼了吗</h1>
+        <p>把所有零件放进棋盘，只让今天露出来</p>
+      </div>
+    </div>
+    <div class="today" aria-label="今天的日期">
+      <span class="year" id="lblY"></span>
+      <span class="big" id="lblM"></span>
+      <span class="big" id="lblD"></span>
+      <span class="big wk" id="lblW"></span>
+    </div>
+  </header>
+
+  <div class="bar">
+    <label class="field">难度 <select id="selStyle"></select></label>
+    <label class="field">主题 <select id="selTheme"></select></label>
+    <div class="seg-wrap">
+      <span>拼什么</span>
+      <div class="seg" role="group" aria-label="拼什么：开启的项会露出来">
+        <button class="tog" id="togM" aria-pressed="true" title="开启：月份露出；关闭：月份格也要被盖住">月</button>
+        <button class="tog" id="togD" aria-pressed="true" title="开启：日期露出；关闭：日期格也要被盖住">日</button>
+        <button class="tog" id="togW" aria-pressed="true" title="开启：星期露出；关闭：星期格也要被盖住">周</button>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="bar-set">
+      <button id="btnRotCCW" disabled title="逆时针旋转（Q）"><i class="fa-solid fa-rotate-left"></i> 旋转<span class="k">Q</span></button>
+      <button id="btnRot" disabled title="顺时针旋转（E）"><i class="fa-solid fa-rotate-right"></i> 旋转<span class="k">E</span></button>
+      <button id="btnFlip" disabled title="翻转（W）"><i class="fa-solid fa-arrow-right-arrow-left"></i> 翻转<span class="k">W</span></button>
+    </div>
+    <span class="sep"></span>
+    <div class="bar-set">
+      <button id="btnHint">提示（剩 1）</button>
+      <button id="btnReset">清空棋盘</button>
+      <button id="btnHelp" class="round" title="玩法说明" aria-label="玩法说明">？</button>
+    </div>
+  </div>
+
+  <div class="wrap" id="wrap">
+    <div class="stage" id="stage">
+      <div class="tray" id="trayBox"><span>零件区</span></div>
+      <div id="board"></div>
+      <div id="ghost"></div>
+      <div id="pieces"></div>
+    </div>
+    <div class="fabs" id="fabs" hidden>
+      <button id="fabRot" title="顺时针旋转" aria-label="顺时针旋转"><i class="fa-solid fa-rotate-right"></i></button>
+      <button id="fabFlip" title="翻转" aria-label="翻转"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
+    </div>
+    <div class="win" id="win" hidden>
+      <div class="win-card">
+        <b>拼好了！</b>
+        <span id="winText"></span>
+        <div class="ws" id="winStats" hidden></div>
+        <button id="btnWinClose" class="primary">继续欣赏</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span id="stToday"></span>
+    <span id="stTotal"></span>
+  </div>
+</div>
+
+<div class="modal" id="helpModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-label="玩法说明">
+    <div class="modal-head">
+      <div class="tabs" id="helpTabs">
+        <button class="tab on" data-tab="how">怎么玩</button>
+        <button class="tab" data-tab="about">关于零件</button>
+      </div>
+      <button class="round" id="btnHelpClose" title="关闭" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <section data-panel="how">
+        <p><b>目标：</b>把所有零件放进棋盘，只让今天的月、日、星期露出来。</p>
+        <p>拖动零件放进棋盘，松手会自动吸附到格子上。手机上轻点零件即可顺时针旋转；电脑上第一次点击是选中，再次点击顺时针旋转，按住 <kbd>Shift</kbd> 点击或点右键则翻转。</p>
+        <p>选中零件后可用键盘：<kbd>Q</kbd> 逆时针旋转、<kbd>E</kbd> 顺时针旋转、<kbd>W</kbd> 翻转、<kbd>Esc</kbd> 取消选中。</p>
+        <p>按钮栏的「拼什么」开关：开启的项（月 / 日 / 周）会露出来，关闭的项也要被零件盖住。</p>
+        <p>每天有 <b>1 次</b>提示机会，会把一块零件自动放到正确位置。</p>
+      </section>
+      <section data-panel="about" hidden>
+        <p>拼盘每天一套、生成当天一定有解。接入 Supabase 后，每天 23:00 由云端生成下一天的全套拼盘，所有玩家统一读取同一套；未接入时在本机生成，若某天拼不出会自动换一套。</p>
+        <p>不同的「拼什么」组合各自对应一套拼盘，切换时自动加载。</p>
+        <p>完成拼图后可以比一比：看看你是今天第几位完成的、用时多少、今日最快是谁。</p>
+      </section>
+    </div>
+    <div class="modal-foot">
+      <button id="btnHelpNext" class="primary">下一步</button>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* =========================================================
+ * 基础常量与棋盘布局
+ * ======================================================= */
+const STORE_KEY = 'calTangram.v1';
+const ROWS = 8, COLS = 7, PAD = 0.3;
+const MONTHS = Array.from({length:12}, (_, i) => (i + 1) + '月');
+const WEEK_SHORT = ['周日','周一','周二','周三','周四','周五','周六'];
+const WEEK_FULL  = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+
+/** 难度：每块零件的格数范围。可在此追加新的难度 */
+const STYLES = {
+  easy:   { name:'大块（5–7 格）', range:[5,7] },
+  normal: { name:'均衡（4–6 格）', range:[4,6] },
+  hard:   { name:'细碎（3–5 格）', range:[3,5] },
+};
+
+/* =========================================================
+ * Supabase（可选）。url / key 不写死在代码里：
+ * GitHub Actions 部署时从仓库 Secrets（SUPABASE_URL / SUPABASE_ANON_KEY）
+ * 注入下面的占位符（见 .github/workflows/deploy.yml）；
+ * 本地开发未注入时自动降级为纯本地模式。建表脚本见 supabase-setup.sql。
+ * 时间约定：全站“今天”一律按北京时间（UTC+8）计算，与每天 23:00
+ * （= UTC 15:00）的定时生成保持一致；Supabase timestamptz 底层
+ * 即为 UTC 存储，date 字段不涉时区，无需额外转换。
+ * ======================================================= */
+const SUPABASE_URL = '__SUPABASE_URL__';
+const SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
+const SB_TABLE = 'completions';
+let _sbClient = null;
+const SB = {
+  enabled(){
+    return !!(window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY &&
+      !SUPABASE_URL.includes('__SUPABASE_URL') && !SUPABASE_ANON_KEY.includes('__SUPABASE_ANON_KEY'));
+  },
+  client(){
+    if (!_sbClient) _sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return _sbClient;
+  },
+};
+
+/* =========================================================
+ * 提示次数（每天最多 1 次）—— 抽象存取接口
+ * 当前实现：localStorage。
+ * 后续迁移 Supabase（用户表按 用户/日期 记 used）时，
+ * 只需替换本对象的 left / consume 两个方法，调用方不用改。
+ * ======================================================= */
+const HintProvider = {
+  MAX_PER_DAY: 1,
+  KEY: 'calTangram.hints.v1',
+  _read(){ try{ return JSON.parse(localStorage.getItem(this.KEY)) || {}; }catch(e){ return {}; } },
+  _write(d){ try{ localStorage.setItem(this.KEY, JSON.stringify(d)); }catch(e){} },
+  /** 剩余次数 */
+  async left(day){
+    const d = this._read();
+    return d.day === day ? Math.max(0, this.MAX_PER_DAY - (d.used || 0)) : this.MAX_PER_DAY;
+  },
+  /** 消耗一次，返回 { ok, left } */
+  async consume(day){
+    const d = this._read();
+    const used = d.day === day ? (d.used || 0) : 0;
+    if (used >= this.MAX_PER_DAY) return { ok:false, left:0 };
+    this._write({ day, used: used + 1 });
+    return { ok:true, left: this.MAX_PER_DAY - used - 1 };
+  },
+};
+
+const key = (r, c) => r + ',' + c;
+const monthPos = m => [Math.floor(m / 6), m % 6];
+const dayPos   = d => [2 + Math.floor((d - 1) / 7), (d - 1) % 7];
+const weekPos  = w => (w <= 3 ? [6, 3 + w] : [7, w]);
+
+/* 棋盘 50 格：
+ *  行0  1月..6月
+ *  行1  7月..12月
+ *  行2-5 1..28
+ *  行6  29 30 31 周日 周一 周二 周三
+ *  行7              周四 周五 周六       */
+const CELLS = new Map();
+for (let m = 0; m < 12; m++) CELLS.set(key(...monthPos(m)), {type:'month', label:MONTHS[m]});
+for (let d = 1; d <= 31; d++) CELLS.set(key(...dayPos(d)), {type:'day', label:String(d)});
+for (let w = 0; w < 7; w++) CELLS.set(key(...weekPos(w)), {type:'week', label:WEEK_SHORT[w]});
+
+/* =========================================================
+ * 主题：全部来自 theme/ 目录，theme/index.json 的顺序即下拉框顺序。
+ * 主题文件格式：{ id, name, dark, vars:{...CSS 变量}, pieces:[颜色...], fontCss? }
+ * vars 可以只写与 BASE_VARS 不同的项。
+ * ======================================================= */
+const BASE_VARS = {
+  'bg':'#dfe7e0','bg-art':'none','panel':'#f3f6f1','panel-edge':'#c9d6cb',
+  'ink':'#1e2b26','muted':'#5f7369','line':'#a9bcb0',
+  'board':'#3f6b5c','cell':'#eef3ee','cell-month':'#e4ede7','cell-week':'#e7ecf2','cell-ink':'#2c4a40',
+  'accent':'#2d4a8a','accent-ink':'#ffffff','target-bg':'#ffffff',
+  'shadow':'rgba(20,40,30,.28)','piece-stroke':'rgba(15,30,25,.55)','piece-gloss':'.3',
+  'font-display':'"Noto Serif SC","Songti SC","STSong",serif',
+  'font-body':'-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif',
+};
+const DEFAULT_PIECES = ['#d9734e','#e8b04a','#4f86b8','#7aa865','#9a6fb0','#c9576f','#5bb1a8','#d4925a','#6d7fcf','#b5a33c','#e08aa0','#3f8f72'];
+let THEMES = [];   // 按 theme/index.json 顺序填充
+let palette = DEFAULT_PIECES;
+
+/* =========================================================
+ * 存储
+ * ======================================================= */
+function loadStore(){
+  try{
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (s && s.sets) return Object.assign(defaultStore(), s);
+  }catch(e){}
+  return defaultStore();
+}
+function defaultStore(){ return { theme:null, style:'normal', opts:{m:true,d:true,w:true}, sets:{}, progress:{}, wins:{} }; }
+function saveStore(){
+  try{
+    const keys = Object.keys(store.progress);
+    if (keys.length > 40) keys.slice(0, keys.length - 40).forEach(k => delete store.progress[k]);
+    const wk = Object.keys(store.wins || {});
+    if (wk.length > 60) wk.slice(0, wk.length - 60).forEach(k => delete store.wins[k]);
+    localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  }catch(e){}
+}
+const store = loadStore();
+if (!STYLES[store.style]) store.style = 'normal';
+
+/* =========================================================
+ * 几何工具
+ * ======================================================= */
+// rot：顺时针 90° 次数；flip：先水平镜像。返回归一化并按行优先排序的格子
+function transform(cells, rot, flip){
+  let out = cells.map(([r, c]) => [r, flip ? -c : c]);
+  for (let k = 0; k < rot; k++) out = out.map(([r, c]) => [c, -r]);
+  let mr = Infinity, mc = Infinity;
+  for (const [r, c] of out){ if (r < mr) mr = r; if (c < mc) mc = c; }
+  out = out.map(([r, c]) => [r - mr, c - mc]);
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return out;
+}
+function canonKey(cells){
+  let best = null;
+  for (let t = 0; t < 8; t++){
+    const k = JSON.stringify(transform(cells, t % 4, t >= 4));
+    if (best === null || k < best) best = k;
+  }
+  return best;
+}
+function orient(p){
+  const cells = transform(p.base, p.rot, p.flip);
+  let w = 0, h = 0;
+  for (const [r, c] of cells){ if (c + 1 > w) w = c + 1; if (r + 1 > h) h = r + 1; }
+  return {cells, w, h};
+}
+
+/* =========================================================
+ * 当前日期 / 目标格
+ * ======================================================= */
+let viewDate = new Date();
+function opts(){ return store.opts; }
+function maskKey(){ const o = opts(); return (o.m?1:0) + '' + (o.d?1:0) + (o.w?1:0); }
+function exposedCells(){
+  const o = opts(), out = [];
+  if (o.m) out.push(monthPos(viewDate.getMonth()));
+  if (o.d) out.push(dayPos(viewDate.getDate()));
+  if (o.w) out.push(weekPos(viewDate.getDay()));
+  return out;
+}
+function coverKeys(){
+  const ex = new Set(exposedCells().map(a => key(...a)));
+  return [...CELLS.keys()].filter(k => !ex.has(k));
+}
+function ymd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function bjDay(){
+  // 全站统一的“今天”：北京时间（UTC+8）的日历日，与 23:00 定时生成对齐
+  const f = new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' });
+  return f.format(new Date());
+}
+function targetKey(){ return ymd(viewDate) + '|' + maskKey(); }
+function fmtDur(s){
+  if (s == null || isNaN(s)) return '—';
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : String(m)) + ':' + String(ss).padStart(2,'0');
+}
+
+/* =========================================================
+ * 随机生成零件：把覆盖区切分成多连块
+ * ======================================================= */
+function partition(cellKeys, mn, mx){
+  const all = new Set(cellKeys);
+  const NB = new Map();
+  for (const k of all){
+    const [r, c] = k.split(',').map(Number);
+    NB.set(k, [key(r-1,c), key(r+1,c), key(r,c-1), key(r,c+1)].filter(n => all.has(n)));
+  }
+  const feasible = s => Math.ceil(s / mx) <= Math.floor(s / mn);
+  const comps = free => {
+    const seen = new Set(), sizes = [];
+    for (const k of free){
+      if (seen.has(k)) continue;
+      let n = 0; const st = [k]; seen.add(k);
+      while (st.length){ const x = st.pop(); n++; for (const y of NB.get(x)) if (free.has(y) && !seen.has(y)){ seen.add(y); st.push(y); } }
+      sizes.push(n);
+    }
+    return sizes;
+  };
+  const freeDeg = (k, free) => { let n = 0; for (const y of NB.get(k)) if (free.has(y)) n++; return n; };
+
+  let best = null, bestScore = Infinity;
+  for (let att = 0; att < 4000; att++){
+    const free = new Set(all), out = [];
+    let ok = true;
+    while (free.size){
+      if (free.size >= mn && free.size <= mx && comps(free).length === 1){ out.push([...free]); free.clear(); break; }
+      let start = null, bd = Infinity;
+      for (const k of free){ const d = freeDeg(k, free) + Math.random() * 0.9; if (d < bd){ bd = d; start = k; } }
+      const target = mn + Math.floor(Math.random() * (mx - mn + 1));
+      const piece = [start]; free.delete(start);
+      while (piece.length < target){
+        const cand = new Set();
+        for (const k of piece) for (const n of NB.get(k)) if (free.has(n)) cand.add(n);
+        if (!cand.size) break;
+        let pick = null, ps = Infinity;
+        for (const n of cand){ const s = freeDeg(n, free) + Math.random() * 2.4; if (s < ps){ ps = s; pick = n; } }
+        piece.push(pick); free.delete(pick);
+      }
+      if (piece.length < mn){ ok = false; break; }
+      if (comps(free).some(s => !feasible(s))){ ok = false; break; }
+      out.push(piece);
+    }
+    if (!ok) continue;
+    // 评分：重复形状越少越好
+    const cnt = new Map();
+    out.forEach(pc => { const k = canonKey(pc.map(s => s.split(',').map(Number))); cnt.set(k, (cnt.get(k)||0) + 1); });
+    let score = 0; cnt.forEach(v => score += v - 1);
+    if (score < bestScore){ best = out; bestScore = score; if (score === 0) break; }
+    if (att > 800 && best) break;
+  }
+  return best;
+}
+
+function generateSet(){
+  const [mn, mx] = STYLES[store.style].range;
+  const parts = partition(coverKeys(), mn, mx);
+  if (!parts) return null;
+  const pieces = [], solution = [];
+  parts.forEach(pc => {
+    const abs = pc.map(s => s.split(',').map(Number));
+    const minR = Math.min(...abs.map(a => a[0])), minC = Math.min(...abs.map(a => a[1]));
+    const cells = abs.map(([r, c]) => [r - minR, c - minC]).sort((a, b) => a[0]-b[0] || a[1]-b[1]);
+    pieces.push({ cells, r0: Math.floor(Math.random()*4), f0: Math.random() < .5 });
+    solution.push({ t:0, gx:minC, gy:minR });
+  });
+  // 打乱顺序，避免零件区按棋盘位置排列
+  const idx = pieces.map((_, i) => i).sort(() => Math.random() - .5);
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    style: store.style, mask: maskKey(), created: bjDay(),
+    targetKey: targetKey(),
+    pieces: idx.map(i => pieces[i]), solution: idx.map(i => solution[i]),
+  };
+}
+
+/* =========================================================
+ * 求解器（在 Web Worker 中运行，失败则退回主线程）
+ * ======================================================= */
+function solverMain(d){
+  const R = d.rows, C = d.cols, N = R * C;
+  const isCover = new Uint8Array(N), occ = new Uint8Array(N);
+  d.cover.forEach(([r, c]) => isCover[r*C + c] = 1);
+  const P = d.pieces.length;
+  const area = d.pieces.reduce((s, p) => s + p.length, 0);
+  if (area !== d.cover.length) return {status:'none'};
+  const minSize = Math.min(...d.pieces.map(p => p.length));
+  const orients = d.pieces.map(cells => {
+    const seen = new Set(), list = [];
+    for (let t = 0; t < 8; t++){
+      const o = transform(cells, t % 4, t >= 4), k = JSON.stringify(o);
+      if (seen.has(k)) continue; seen.add(k);
+      const [ar, ac] = o[0];
+      list.push({t, ar, ac, offs:o.map(([r, c]) => [r - ar, c - ac])});
+    }
+    return list;
+  });
+  const keys = d.pieces.map(cells => {
+    let b = null; for (let t = 0; t < 8; t++){ const k = JSON.stringify(transform(cells, t%4, t>=4)); if (b === null || k < b) b = k; } return b;
+  });
+  const order = []; for (let i = 0; i < N; i++) if (isCover[i]) order.push(i);
+  const used = new Uint8Array(P), sol = new Array(P), vis = new Int32Array(N), stack = new Int32Array(N);
+  let stamp = 0, nodes = 0; const limit = d.limit || 3e6;
+  function compsOk(){
+    stamp++;
+    for (const id of order){
+      if (occ[id] || vis[id] === stamp) continue;
+      let size = 0, sp = 0; stack[sp++] = id; vis[id] = stamp;
+      while (sp){
+        const k = stack[--sp]; size++;
+        const r = (k / C) | 0, c = k % C;
+        if (r > 0){ const n = k - C; if (isCover[n] && !occ[n] && vis[n] !== stamp){ vis[n] = stamp; stack[sp++] = n; } }
+        if (r < R-1){ const n = k + C; if (isCover[n] && !occ[n] && vis[n] !== stamp){ vis[n] = stamp; stack[sp++] = n; } }
+        if (c > 0){ const n = k - 1; if (isCover[n] && !occ[n] && vis[n] !== stamp){ vis[n] = stamp; stack[sp++] = n; } }
+        if (c < C-1){ const n = k + 1; if (isCover[n] && !occ[n] && vis[n] !== stamp){ vis[n] = stamp; stack[sp++] = n; } }
+      }
+      if (size < minSize) return false;
+    }
+    return true;
+  }
+  function rec(pos){
+    while (pos < order.length && occ[order[pos]]) pos++;
+    if (pos >= order.length) return true;
+    if (++nodes > limit) throw 'limit';
+    const id = order[pos], R0 = (id / C) | 0, C0 = id % C;
+    for (let i = 0; i < P; i++){
+      if (used[i]) continue;
+      let dup = false; for (let j = 0; j < i; j++) if (!used[j] && keys[j] === keys[i]){ dup = true; break; }
+      if (dup) continue;
+      for (const o of orients[i]){
+        let ok = true;
+        for (const [dr, dc] of o.offs){
+          const r = R0 + dr, c = C0 + dc;
+          if (r < 0 || r >= R || c < 0 || c >= C){ ok = false; break; }
+          const k = r*C + c; if (!isCover[k] || occ[k]){ ok = false; break; }
+        }
+        if (!ok) continue;
+        for (const [dr, dc] of o.offs) occ[(R0+dr)*C + C0+dc] = 1;
+        used[i] = 1;
+        if (compsOk() && rec(pos + 1)){ sol[i] = {t:o.t, gx:C0 - o.ac, gy:R0 - o.ar}; return true; }
+        for (const [dr, dc] of o.offs) occ[(R0+dr)*C + C0+dc] = 0;
+        used[i] = 0;
+      }
+    }
+    return false;
+  }
+  try{ return rec(0) ? {status:'solved', solution:sol, nodes} : {status:'none', nodes}; }
+  catch(e){ return {status:'timeout', nodes}; }
+}
+
+let worker = null, reqSeq = 0;
+const pending = new Map();
+try{
+  const code = transform.toString() + '\n' + solverMain.toString() +
+    '\nself.onmessage=e=>{const r=solverMain(e.data);r.req=e.data.req;self.postMessage(r);};';
+  worker = new Worker(URL.createObjectURL(new Blob([code], {type:'text/javascript'})));
+  worker.onmessage = e => { const f = pending.get(e.data.req); if (f){ pending.delete(e.data.req); f(e.data); } };
+  worker.onerror = () => {
+    worker = null;
+    pending.forEach((f, req) => f(Object.assign(solverMain(f.payload), {req})));
+    pending.clear();
+  };
+}catch(e){ worker = null; }
+
+function solve(payload){
+  return new Promise(res => {
+    if (worker){
+      const req = ++reqSeq; res.payload = payload; pending.set(req, res);
+      worker.postMessage(Object.assign({}, payload, {req}));
+    } else setTimeout(() => res(solverMain(payload)), 20);
+  });
+}
+const solCache = new Map();
+function getSolution(){
+  const ck = set.id + '|' + targetKey();
+  if (solCache.has(ck)) return Promise.resolve(solCache.get(ck));
+  if (set.targetKey === targetKey()){
+    const r = {status:'solved', solution:set.solution};
+    solCache.set(ck, r); return Promise.resolve(r);
+  }
+  const cover = coverKeys().map(k => k.split(',').map(Number));
+  return solve({pieces:set.pieces.map(p => p.cells), cover, rows:ROWS, cols:COLS, limit:3e6})
+    .then(r => { solCache.set(ck, r); return r; });
+}
+
+/* =========================================================
+ * DOM
+ * ======================================================= */
+const $ = id => document.getElementById(id);
+const stage = $('stage'), wrap = $('wrap'), boardEl = $('board'), piecesEl = $('pieces'), ghostEl = $('ghost'), trayBox = $('trayBox');
+let set = null, pieces = [], selected = null, drag = null, zTop = 10, winShown = false;
+let U = 50, wide = true, trayScale = 1, trayX = 0, trayY = 0, trayW = 0, stageWu = 0, stageHu = 0;
+let runStart = null, helpOpen = false;
+let BX = PAD; const BY = PAD;   // BX：棋盘在舞台里的横向起点（移动端舞台比棋盘宽时居中）
+
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 2400);
+}
+function noteStart(){ if (runStart == null) runStart = Date.now(); }
+
+/* ---------- 头部日期 ---------- */
+function renderHeader(){
+  $('lblY').textContent = viewDate.getFullYear() + '年';
+  $('lblM').textContent = MONTHS[viewDate.getMonth()];
+  $('lblD').textContent = viewDate.getDate() + '日';
+  $('lblW').textContent = WEEK_FULL[viewDate.getDay()];
+  const o = opts();
+  ['M','D','W'].forEach(L => {
+    const b = $('tog' + L), on = o[L.toLowerCase()];
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
+/* ---------- 棋盘 ---------- */
+function renderBoard(){
+  const ex = new Set(exposedCells().map(a => key(...a)));
+  let d = '';
+  for (const k of CELLS.keys()){ const [r, c] = k.split(',').map(Number); d += `M${c} ${r}h1v1h-1z`; }
+  const m = 0.22;
+  let html = `<svg class="board-base" style="left:${(BX-m)*U}px;top:${(BY-m)*U}px" width="${(COLS+2*m)*U}" height="${(ROWS+2*m)*U}" viewBox="${-m} ${-m} ${COLS+2*m} ${ROWS+2*m}">
+    <path d="${d}" fill="var(--board)" stroke="var(--board)" stroke-width="${m*1.6}" stroke-linejoin="round"/></svg>`;
+  for (const [k, info] of CELLS){
+    const [r, c] = k.split(',').map(Number);
+    const g = 0.06;
+    html += `<div class="cell ${info.type}${ex.has(k) ? ' target' : ''}" style="left:${(BX+c+g)*U}px;top:${(BY+r+g)*U}px;width:${(1-2*g)*U}px;height:${(1-2*g)*U}px">${info.label}</div>`;
+  }
+  boardEl.innerHTML = html;
+}
+
+/* ---------- 零件绘制 ---------- */
+function shapeSVG(cells, w, h, color, gid, ghost){
+  const s = new Set(cells.map(([r, c]) => key(r, c)));
+  let fill = '', edge = '', inner = '';
+  const e = 0.012;
+  for (const [r, c] of cells){
+    fill += `M${c-e} ${r-e}h${1+2*e}v${1+2*e}h${-1-2*e}z`;
+    if (!s.has(key(r-1, c))) edge += `M${c} ${r}h1`;
+    if (!s.has(key(r+1, c))) edge += `M${c} ${r+1}h1`; else inner += `M${c+.18} ${r+1}h.64`;
+    if (!s.has(key(r, c-1))) edge += `M${c} ${r}v1`;
+    if (!s.has(key(r, c+1))) edge += `M${c+1} ${r}v1`; else inner += `M${c+1} ${r+.18}v.64`;
+  }
+  if (ghost){
+    const col = ghost === 'bad' ? '#e5484d' : 'var(--accent)';
+    return `<svg width="${w*U}" height="${h*U}" viewBox="0 0 ${w} ${h}">
+      <path d="${fill}" fill="${col}" fill-opacity=".18"/>
+      <path d="${edge}" fill="none" stroke="${col}" stroke-width="2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  return `<svg width="${w*U}" height="${h*U}" viewBox="0 0 ${w} ${h}">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" style="stop-color:#fff;stop-opacity:var(--piece-gloss)"/>
+      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient></defs>
+    <path class="hit" d="${fill}" fill="${color}"/>
+    <path d="${fill}" fill="url(#${gid})"/>
+    <path d="${inner}" fill="none" stroke="#000" stroke-opacity=".16" stroke-width="1.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <path d="${edge}" fill="none" stroke="var(--piece-stroke)" stroke-width="2" stroke-linecap="square" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function buildPieceSVG(p){
+  const o = orient(p);
+  p.el.innerHTML = shapeSVG(o.cells, o.w, o.h, palette[p.i % palette.length], 'pg' + p.i);
+}
+function position(p){
+  // 移动端托盘里的零件按 trayScale 缩放显示，抓起/放上棋盘时恢复原大
+  const sc = (!p.placed && trayScale < 1) ? trayScale : 1;
+  p.el.style.transform = `translate(${p.x*U}px, ${p.y*U}px)` + (sc < 1 ? ` scale(${sc})` : '');
+  p.el.classList.toggle('loose', !p.placed && isOverBoard(p));
+}
+function isOverBoard(p){
+  const o = orient(p), cx = p.x + o.w/2, cy = p.y + o.h/2;
+  return cx > BX - .3 && cx < BX + COLS + .3 && cy > BY - .3 && cy < BY + ROWS + .3;
+}
+
+/* ---------- 布局：按可用宽高取最小的格距，保证整页不滚动 ---------- */
+function packTray(fixedH){
+  // 零件统一转横后用「落地式」紧凑填装（每块落到不压到已放零件的最低位置，
+  // 之间保留 gap 间隙）。桌面端传入 fixedH=棋盘高度：内容不足时垂直居中，
+  // 零件区与棋盘上下边缘严格对齐；内容超出时盒子自动长高（罕见）。
+  const s = trayScale, gap = wide ? 0.3 : 0.26;
+  const padX = wide ? 0.25 : 0.15, padY = wide ? 0.3 : 0.16;
+  const W = trayW - padX * 2;
+  const loose = pieces.filter(p => !p.placed);
+  loose.forEach(p => {
+    const o = orient(p);
+    if (o.h > o.w){
+      p.rot = (p.rot + 3) % 4; // 统一转成横放，零件区更扁
+    } else if (wide && o.w > W){
+      p.rot = (p.rot + 1) % 4;
+    }
+  });
+  loose.sort((a, b) => orient(b).h - orient(a).h || orient(b).w - orient(a).w);
+  const rects = [];
+  for (const p of loose){
+    const o = orient(p), w = o.w * s, h = o.h * s;
+    let bx = 0, by = Infinity;
+    for (let x = 0; x <= W - w + 1e-9; x += 0.1){
+      let y = 0;
+      for (const r of rects){
+        if (r.x - gap < x + w && x < r.x + r.w + gap) y = Math.max(y, r.y + r.h + gap);
+      }
+      if (y < by - 1e-9){ by = y; bx = x; }
+    }
+    if (!isFinite(by)){ bx = 0; by = 0; }
+    rects.push({ p, x:bx, y:by, w, h });
+    p.x = trayX + padX + bx; p.y = trayY + padY + by;
+  }
+  const contentH = rects.length ? padY + Math.max(...rects.map(r => r.y + r.h)) + padY : 1;
+  const outH = Math.max(fixedH || 0, contentH);
+  const extra = (outH - contentH) / 2;
+  if (extra > 0) rects.forEach(r => { r.p.y += extra; });
+  return outH;
+}
+function layout(){
+  const cs = getComputedStyle(wrap);
+  const availW = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  wide = availW >= 700;
+  trayScale = wide ? 0.85 : 0.65; // 桌面零件区略缩 15%，保证与棋盘上下对齐
+  document.body.classList.toggle('is-narrow', !wide);
+  if (wide){
+    BX = PAD; trayW = 11; stageWu = PAD + COLS + 0.9 + trayW + PAD; trayX = PAD + COLS + 0.9;
+    trayY = PAD - 0.22; // 零件区与棋盘底板外沿上下对齐
+  } else {
+    // 移动端：零件区横贯整个宽度（比棋盘宽），棋盘在其上方居中，格子反而更大
+    stageWu = 9;
+    BX = (stageWu - (COLS + 2 * PAD)) / 2;
+    trayX = 0.12; trayW = stageWu - 0.24; trayY = PAD + ROWS + 0.45;
+  }
+  const boardH = ROWS + 0.44; // 棋盘底板外沿高度
+  const trayH = wide ? Math.max(boardH, packTray(boardH)) : Math.max(packTray(), 1);
+  stageHu = Math.max(PAD + ROWS + PAD, trayY + trayH + PAD);
+  U = Math.max(18, Math.min(66, availW / stageWu, availH / stageHu));
+  stage.style.width = stageWu * U + 'px';
+  stage.style.height = stageHu * U + 'px';
+  stage.style.setProperty('--u', U + 'px');
+  Object.assign(trayBox.style, { left:trayX*U + 'px', top:trayY*U + 'px', width:trayW*U + 'px', height:trayH*U + 'px' });
+  renderBoard();
+  pieces.forEach(p => { clampPiece(p); buildPieceSVG(p); position(p); });
+  updateFabs();
+}
+function clampPiece(p){
+  const o = orient(p);
+  p.x = Math.min(Math.max(p.x, 0), stageWu - o.w);
+  p.y = Math.min(Math.max(p.y, 0), stageHu - o.h);
+}
+
+/* ---------- 放置规则 ---------- */
+function occupancy(except){
+  const m = new Map();
+  for (const p of pieces){
+    if (!p.placed || p === except) continue;
+    const gx = Math.round(p.x - BX), gy = Math.round(p.y - BY);
+    for (const [r, c] of orient(p).cells) m.set(key(gy + r, gx + c), p);
+  }
+  return m;
+}
+function canPlace(p, gx, gy){
+  const occ = occupancy(p);
+  for (const [r, c] of orient(p).cells){
+    const k = key(gy + r, gx + c);
+    if (!CELLS.has(k) || occ.has(k)) return false;
+  }
+  return true;
+}
+function cellsHitExposed(p, gx, gy, ex){
+  // 该摆放位置是否会盖住需要露出的目标格
+  for (const [r, c] of orient(p).cells) if (ex.has(key(gy + r, gx + c))) return true;
+  return false;
+}
+function snapTarget(p){
+  if (!isOverBoard(p)) return 'free';
+  const fx = p.x - BX, fy = p.y - BY, gx0 = Math.round(fx), gy0 = Math.round(fy);
+  const ex = new Set(exposedCells().map(a => key(...a)));
+  const cands = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){
+    const gx = gx0 + dx, gy = gy0 + dy;
+    cands.push({gx, gy, d:(gx - fx)**2 + (gy - fy)**2});
+  }
+  cands.sort((a, b) => a.d - b.d);
+  let bad = null;
+  for (const c of cands){
+    if (c.d >= 1.1 || !canPlace(p, c.gx, c.gy)) continue;
+    if (cellsHitExposed(p, c.gx, c.gy, ex)){ if (!bad) bad = {...c, bad:true}; continue; }
+    return c;
+  }
+  return bad; // 有位置可放但会盖住目标格 → 标记 bad：红色虚线，且不可放置
+}
+
+/* ---------- 交互 ---------- */
+function select(p){
+  if (selected && selected !== p) selected.el.classList.remove('sel');
+  selected = p;
+  if (p) p.el.classList.add('sel');
+  $('btnRot').disabled = $('btnRotCCW').disabled = $('btnFlip').disabled = !p;
+  updateFabs();
+}
+function updateFabs(){
+  // 移动端选中零件时，右侧浮现 旋转/翻转 按钮（胜利弹窗时隐藏）
+  $('fabs').hidden = !(selected && !wide && !winShown);
+}
+function makePieceEl(p){
+  const el = document.createElement('div');
+  el.className = 'piece'; p.el = el; el.style.zIndex = ++zTop;
+  el.addEventListener('pointerdown', e => onDown(e, p));
+  el.addEventListener('pointermove', onMove);
+  el.addEventListener('pointerup', onUp);
+  el.addEventListener('pointercancel', onCancel);
+  el.addEventListener('contextmenu', e => { e.preventDefault(); flipPiece(p); });
+  piecesEl.appendChild(el);
+}
+function onDown(e, p){
+  if (e.button === 2) return;
+  e.preventDefault(); e.stopPropagation();
+  noteStart();
+  const wasSel = (selected === p);
+  select(p);
+  p.el.setPointerCapture(e.pointerId);
+  p.el.style.zIndex = ++zTop;
+  drag = {p, id:e.pointerId, sx:e.clientX, sy:e.clientY, px:p.x, py:p.y, wasPlaced:p.placed, moved:false, shift:e.shiftKey, wasSel};
+}
+function onMove(e){
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (!drag.moved){
+    if (Math.hypot(dx, dy) < 6) return;
+    drag.moved = true; drag.p.placed = false; drag.p.el.classList.add('dragging'); hideWin();
+  }
+  drag.p.x = drag.px + dx / U; drag.p.y = drag.py + dy / U;
+  position(drag.p); updateGhost(drag.p);
+}
+function onUp(e){
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag, p = d.p; drag = null;
+  p.el.classList.remove('dragging'); hideGhost();
+  if (!d.moved){
+    // PC 端第一次点击只选中不旋转；再次点击才旋转（Shift=翻转）。移动端轻点即旋转
+    if (!d.wasSel && wide) return;
+    d.shift ? flipPiece(p) : rotatePiece(p, 1);
+    return;
+  }
+  const snap = snapTarget(p);
+  if (snap === 'free'){ clampPiece(p); p.placed = false; }
+  else if (snap && !snap.bad){ p.x = BX + snap.gx; p.y = BY + snap.gy; p.placed = true; }
+  else { p.x = d.px; p.y = d.py; p.placed = d.wasPlaced; } // 没有可放位置，或会盖住目标格 → 弹回原处
+  position(p); afterChange();
+}
+function onCancel(e){
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag; drag = null;
+  d.p.el.classList.remove('dragging'); hideGhost();
+  d.p.x = d.px; d.p.y = d.py; d.p.placed = d.wasPlaced; position(d.p);
+}
+function updateGhost(p){
+  const s = snapTarget(p);
+  if (s && s !== 'free'){
+    const o = orient(p);
+    ghostEl.innerHTML = shapeSVG(o.cells, o.w, o.h, '', '', s.bad ? 'bad' : 'ok');
+    ghostEl.style.transform = `translate(${(BX + s.gx)*U}px, ${(BY + s.gy)*U}px)`;
+    ghostEl.classList.add('on');
+  } else hideGhost();
+}
+function hideGhost(){ ghostEl.classList.remove('on'); }
+
+function rotatePiece(p, dir){ noteStart(); const o1 = orient(p); p.rot = (p.rot + dir + 4) % 4; afterReorient(p, o1); }
+function flipPiece(p){ noteStart(); const o1 = orient(p); p.rot = (4 - p.rot) % 4; p.flip = !p.flip; afterReorient(p, o1); }
+function afterReorient(p, o1){
+  const o2 = orient(p);
+  p.x += (o1.w - o2.w) / 2; p.y += (o1.h - o2.h) / 2;
+  if (p.placed){
+    const gx = Math.round(p.x - BX), gy = Math.round(p.y - BY);
+    if (canPlace(p, gx, gy)){ p.x = BX + gx; p.y = BY + gy; } else p.placed = false;
+  }
+  clampPiece(p); buildPieceSVG(p); position(p); hideWin(); afterChange();
+}
+
+/* ---------- 进度 / 胜利 ---------- */
+function progKey(){ return set.id + '|' + targetKey(); }
+function saveProgress(){
+  store.progress[progKey()] = pieces.map(p => p.placed
+    ? {r:p.rot, f:p.flip ? 1 : 0, gx:Math.round(p.x - BX), gy:Math.round(p.y - BY)}
+    : {r:p.rot, f:p.flip ? 1 : 0});
+  saveStore();
+}
+function afterChange(){ saveProgress(); checkWin(true); }
+function checkWin(interactive){
+  if (pieces.some(p => !p.placed)) return;
+  const ex = new Set(exposedCells().map(a => key(...a)));
+  const seen = new Set();
+  for (const p of pieces){
+    const gx = Math.round(p.x - BX), gy = Math.round(p.y - BY);
+    for (const [r, c] of orient(p).cells){
+      const k = key(gy + r, gx + c);
+      if (seen.has(k) || ex.has(k)) return;
+      seen.add(k);
+    }
+  }
+  if (interactive && !winShown) showWin();
+}
+function showWin(){
+  winShown = true;
+  updateFabs();
+  const parts = [];
+  if (opts().m) parts.push(MONTHS[viewDate.getMonth()]);
+  if (opts().d) parts.push(viewDate.getDate() + '日');
+  if (opts().w) parts.push(WEEK_FULL[viewDate.getDay()]);
+  $('winText').textContent = parts.length ? '棋盘上留下了：' + parts.join('，') : '整块棋盘都被铺满了';
+  const elapsed = runStart == null ? null : Math.max(1, Math.round((Date.now() - runStart) / 1000));
+  renderWinStats({ loading:true, elapsed });
+  $('win').hidden = false;
+  const box = wrap.getBoundingClientRect();
+  for (let i = 0; i < 70; i++){
+    const s = document.createElement('span');
+    s.className = 'confetti';
+    s.style.left = Math.random() * box.width + 'px';
+    s.style.background = palette[i % palette.length];
+    s.style.setProperty('--fall', box.height + 40 + 'px');
+    s.style.setProperty('--spin', (Math.random() * 900 - 450) + 'deg');
+    s.style.animationDuration = 1.6 + Math.random() * 1.6 + 's';
+    s.style.animationDelay = Math.random() * .5 + 's';
+    wrap.appendChild(s);
+    setTimeout(() => s.remove(), 4000);
+  }
+  submitCompletion(elapsed).then(res => {
+    if (!$('win').hidden) renderWinStats(Object.assign({ elapsed }, res));
+  });
+}
+function hideWin(){ winShown = false; $('win').hidden = true; updateFabs(); }
+function renderWinStats(s){
+  const box = $('winStats');
+  box.hidden = false;
+  const row = (k, v) => `<div class="ws-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  let html = row('本次用时', fmtDur(s.elapsed));
+  if (s.loading){
+    html += row('今日排名', '查询中…');
+  } else {
+    if (s.rank != null) html += row('今日排名', `第 ${s.rank} 位` + (s.total ? ` · 共 ${s.total} 人完成` : ''));
+    if (s.rank != null) html += row('今日最快', fmtDur(s.best));
+    if (s.note) html += `<div class="ws-note">${s.note}</div>`;
+  }
+  box.innerHTML = html;
+}
+
+/* ---------- 云端统计：提交一次完成，拿回 排名 / 总人数 / 今日最快 ---------- */
+async function submitCompletion(elapsed){
+  const day = bjDay();
+  if (elapsed == null) return { note:'未能记录本次用时' };
+  const prev = (store.wins || {})[day];
+  if (!SB.enabled()) return { note:'未接入云端统计，仅本地计时' };
+  if (prev && prev.submitted){
+    return { rank:prev.rank, total:prev.total, best:prev.best, repeat:true,
+      note:'今日排名取自你第一次完成时的成绩' };
+  }
+  try{
+    const sb = SB.client();
+    let data = null;
+    try{
+      const r = await sb.rpc('submit_completion', { p_day:day, p_elapsed:elapsed, p_target:targetKey() });
+      if (!r.error && r.data != null) data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    }catch(e){ /* 没有 RPC 时走下面的普通查询 */ }
+    if (!data || data.rank == null){
+      const ins = await sb.from(SB_TABLE)
+        .insert({ day, target: targetKey(), elapsed_seconds: elapsed })
+        .select('created_at').single();
+      if (ins.error) throw ins.error;
+      const ts = ins.data.created_at;
+      const [tot, rk, bst] = await Promise.all([
+        sb.from(SB_TABLE).select('*', { count:'exact', head:true }).eq('day', day),
+        sb.from(SB_TABLE).select('*', { count:'exact', head:true }).eq('day', day).lte('created_at', ts),
+        sb.from(SB_TABLE).select('elapsed_seconds').eq('day', day).order('elapsed_seconds').limit(1),
+      ]);
+      if (tot.error || rk.error || bst.error) throw (tot.error || rk.error || bst.error);
+      data = { rank: rk.count, total: tot.count, best: bst.data && bst.data.length ? bst.data[0].elapsed_seconds : null };
+    }
+    store.wins = store.wins || {};
+    store.wins[day] = { rank:data.rank, total:data.total, best:data.best, elapsed, submitted:true };
+    saveStore();
+    refreshTodayCount();
+    refreshGlobalStats();
+    return { rank:data.rank, total:data.total, best:data.best };
+  }catch(err){
+    console.warn('云端统计提交失败', err);
+    return { note:'云端统计暂时不可用，仅本地计时' };
+  }
+}
+async function refreshTodayCount(){
+  if (!SB.enabled()) return;
+  try{
+    const { count, error } = await SB.client()
+      .from(SB_TABLE).select('*', { count:'exact', head:true }).eq('day', bjDay());
+    if (!error && typeof count === 'number') $('stToday').textContent = `今日已有 ${count} 人拼好`;
+  }catch(e){}
+}
+async function refreshGlobalStats(){
+  // 全局累计完成人数（global_stats 由每天 0:30 的 Cron 累加前一天数据）
+  if (!SB.enabled()) return;
+  try{
+    const { data, error } = await SB.client().from('global_stats')
+      .select('total_completions, updated_at').eq('id', 1).maybeSingle();
+    if (error || !data) return;
+    const t = data.total_completions;
+    if (t == null) return;
+    let when = '';
+    if (data.updated_at){
+      const d = new Date(data.updated_at); // UTC → 浏览器本地时区显示
+      when = `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+    $('stTotal').textContent = `累计已有 ${t} 人拼好` + (when ? ` · 上次更新于 ${when}` : '');
+  }catch(e){}
+}
+
+/* ---------- 求解状态（内部校验用，不再展示） ---------- */
+/* 拼盘由生成时保证有解；本地回退拼盘在 ensureSet 里经求解器校验，
+ * 无解会自动重新生成，因此界面不再显示 ✓/✗ 状态。 */
+
+/* ---------- 载入一套拼盘：云端每日拼盘优先，本地生成为回退 ---------- */
+async function fetchDailySet(style, mask){
+  // 读取每天 23:00 定时生成的拼盘（所有玩家统一同一套）。
+  // 返回 dbOk 区分「连库成功」与「连库失败」：
+  //   dbOk=false → 连接失败，调用方降级本地生成；
+  //   dbOk=true 且 set=null → 连接正常但今日拼盘为空，可补生成上传。
+  if (!SB.enabled()) return { set:null, dbOk:false };
+  try{
+    const day = bjDay();
+    const { data, error } = await SB.client().from('daily_puzzles')
+      .select('pieces, solution')
+      .eq('day', day).eq('mask', mask).eq('style', style)
+      .maybeSingle();
+    if (error){ console.warn('daily_puzzles 读取失败，降级本地生成：', error.message); return { set:null, dbOk:false }; }
+    if (data && Array.isArray(data.pieces) && Array.isArray(data.solution)){
+      return { set: {
+        id: 'pub-' + day + '-' + mask + '-' + style,
+        style, mask, created: day, targetKey: targetKey(),
+        pieces: data.pieces, solution: data.solution,
+      }, dbOk:true };
+    }
+    return { set:null, dbOk:true };
+  }catch(e){ return { set:null, dbOk:false }; }
+}
+let ensureSeq = 0;
+async function ensureSet(forceNew){
+  const ticket = ++ensureSeq;
+  const style = store.style, mask = maskKey();
+  // 1) 云端统一拼盘
+  const { set: pub, dbOk } = await fetchDailySet(style, mask);
+  if (ticket !== ensureSeq) return;
+  if (pub){ set = pub; loadPieces(); return; }
+  // 2) 连库成功但今日拼盘为空：本地生成一份先玩着，乐观锁上传
+  //    （ignoreDuplicates = 首写生效，谁先插入用谁的，绝不覆盖他人已发布的拼盘）
+  if (dbOk){
+    const s = generateSet();
+    if (s){
+      set = s; loadPieces();
+      try{
+        await SB.client().from('daily_puzzles')
+          .upsert([{ day: bjDay(), mask, style, pieces: s.pieces, solution: s.solution }],
+                  { onConflict: 'day,mask,style', ignoreDuplicates: true });
+        refreshTodayCount();
+      }catch(e){ console.warn('拼盘上传失败（不影响本机游玩）：', e); }
+      return;
+    }
+  }
+  // 3) 连库失败 / 未接入：本地生成，对今天无解就自动重新生成，直到有解
+  const k = style + '|' + mask;
+  const cover = coverKeys().map(c => c.split(',').map(Number));
+  let s = forceNew ? null : (store.sets[k] || null);
+  for (let i = 0; i < 8; i++){
+    const cand = s || generateSet();
+    if (!cand) break;
+    const r = await solve({ pieces: cand.pieces.map(p => p.cells), cover, rows: ROWS, cols: COLS, limit: 3e6 });
+    if (r.status === 'solved' || r.status === 'timeout'){ s = cand; break; }
+    s = null; // 今天拼不出 → 自动换一套
+  }
+  if (ticket !== ensureSeq) return;
+  if (!s){ toast('生成拼盘失败，请重试'); return; }
+  store.sets[k] = s; saveStore();
+  set = s;
+  loadPieces();
+}
+function loadPieces(){
+  piecesEl.innerHTML = ''; select(null); hideWin();
+  pieces = set.pieces.map((sp, i) => ({i, base:sp.cells, rot:sp.r0 || 0, flip:!!sp.f0, x:0, y:0, placed:false, el:null}));
+  pieces.forEach(makePieceEl);
+  const pr = store.progress[progKey()];
+  if (pr && pr.length === pieces.length){
+    pr.forEach((s, i) => {
+      const p = pieces[i]; p.rot = s.r || 0; p.flip = !!s.f;
+      if (s.gx != null && canPlace(p, s.gx, s.gy)){ p.placed = true; p.x = BX + s.gx; p.y = BY + s.gy; }
+    });
+  }
+  layout(); checkWin(false);
+}
+
+/* ---------- 提示 / 答案 ---------- */
+function solCells(i, s){
+  const t = s.t;
+  return transform(pieces[i].base, t % 4, t >= 4).map(([r, c]) => key(s.gy + r, s.gx + c)).sort().join(';');
+}
+function curCells(p){
+  if (!p.placed) return '';
+  const gx = Math.round(p.x - BX), gy = Math.round(p.y - BY);
+  return orient(p).cells.map(([r, c]) => key(gy + r, gx + c)).sort().join(';');
+}
+function applySol(p, s){
+  p.rot = s.t % 4; p.flip = s.t >= 4; p.x = BX + s.gx; p.y = BY + s.gy; p.placed = true;
+  p.el.style.zIndex = ++zTop; buildPieceSVG(p); position(p);
+}
+async function updateHintBtn(){
+  const left = await HintProvider.left(bjDay());
+  const b = $('btnHint');
+  b.disabled = left <= 0;
+  b.textContent = left > 0 ? `提示（剩 ${left}）` : '提示已用完';
+}
+async function hint(){
+  const r = await getSolution();
+  if (r.status !== 'solved'){ toast('今天还没有找到解，无法提示'); return; }
+  const sol = r.solution;
+  const idx = pieces.findIndex((p, i) => curCells(p) !== solCells(i, sol));
+  if (idx < 0){ toast('已经全部正确'); return; }
+  const q = await HintProvider.consume(bjDay());
+  updateHintBtn();
+  if (!q.ok){ toast('今天的提示次数已用完'); return; }
+  noteStart();
+  const target = new Set(solCells(idx, sol).split(';'));
+  pieces.forEach((p, i) => {
+    if (i !== idx && p.placed && curCells(p).split(';').some(k => target.has(k))) p.placed = false;
+  });
+  applySol(pieces[idx], sol[idx]);
+  packTray(); pieces.forEach(p => { if (!p.placed) position(p); });
+  select(pieces[idx]); afterChange();
+}
+
+/* =========================================================
+ * 主题加载与切换
+ * ======================================================= */
+function validTheme(t){ return t && typeof t.id === 'string' && typeof t.name === 'string' && t.vars && Array.isArray(t.pieces) && t.pieces.length; }
+function renderThemeSelect(){
+  // 平铺展示，顺序 = theme/index.json 里的顺序
+  $('selTheme').innerHTML = THEMES.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  $('selTheme').value = currentTheme;
+}
+let currentTheme = null;
+function applyTheme(id, persist){
+  const th = THEMES.find(t => t.id === id) || THEMES[0];
+  currentTheme = th.id;
+  const vars = Object.assign({}, BASE_VARS, th.vars);
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty('--' + k, v);
+  root.style.colorScheme = th.dark ? 'dark' : 'light';
+  root.setAttribute('data-theme', th.id);
+  document.querySelector('meta[name=theme-color]').setAttribute('content', vars.bg);
+  if (th.fontCss && !document.querySelector(`link[data-font="${th.id}"]`)){
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = th.fontCss; l.dataset.font = th.id;
+    document.head.appendChild(l);
+  }
+  palette = th.pieces;
+  pieces.forEach(buildPieceSVG);
+  if (persist){ store.theme = th.id; saveStore(); }
+  $('selTheme').value = th.id;
+}
+async function loadExternalThemes(){
+  // 主题全部来自 theme/ 目录（兼容旧的 themes/ 命名），按 index.json 顺序加载
+  for (const dir of ['theme', 'themes']){
+    try{
+      const res = await fetch(dir + '/index.json', {cache:'no-cache'});
+      if (!res.ok) continue;
+      const idx = await res.json();
+      const list = Array.isArray(idx) ? idx : (idx.themes || []);
+      for (const item of list){
+        try{
+          let th = item;
+          const file = typeof item === 'string' ? item : item.file;
+          if (file) th = await (await fetch(dir + '/' + file, {cache:'no-cache'})).json();
+          if (validTheme(th) && !THEMES.some(t => t.id === th.id)) THEMES.push(th);
+        }catch(e){}
+      }
+      break; // 找到主题目录即可
+    }catch(e){}
+  }
+  // 一个主题都读不到时（比如直接双击打开 html），用兜底配色保证可玩
+  if (!THEMES.length) THEMES.push({ id:'default', name:'默认', dark:false, vars:{}, pieces: DEFAULT_PIECES });
+}
+
+/* =========================================================
+ * 帮助模态框
+ * ======================================================= */
+const HELP_SEEN_KEY = 'calTangram.helpSeen.v1';
+function openHelp(tab){
+  helpOpen = true;
+  $('helpModal').hidden = false;
+  switchHelpTab(tab || 'how');
+}
+function closeHelp(){
+  helpOpen = false;
+  $('helpModal').hidden = true;
+  try{ localStorage.setItem(HELP_SEEN_KEY, '1'); }catch(e){}
+}
+function switchHelpTab(name){
+  document.querySelectorAll('#helpTabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('#helpModal section[data-panel]').forEach(s => { s.hidden = s.dataset.panel !== name; });
+  $('btnHelpNext').textContent = name === 'how' ? '下一步' : '开始拼图';
+}
+$('helpTabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab');
+  if (b) switchHelpTab(b.dataset.tab);
+});
+$('btnHelpClose').addEventListener('click', closeHelp);
+$('btnHelpNext').addEventListener('click', () => {
+  // 怎么玩 → 关于零件 → 开始拼图
+  if (document.querySelector('#helpTabs .tab[data-tab="how"]').classList.contains('on')) switchHelpTab('about');
+  else closeHelp();
+});
+$('btnHelp').addEventListener('click', () => openHelp('how'));
+$('helpModal').addEventListener('click', e => { if (e.target === $('helpModal')) closeHelp(); });
+function firstVisitHelp(){
+  let seen = false;
+  try{ seen = !!localStorage.getItem(HELP_SEEN_KEY); }catch(e){}
+  if (!seen) openHelp('how');
+}
+
+/* =========================================================
+ * 事件绑定
+ * ======================================================= */
+$('selStyle').innerHTML = Object.entries(STYLES).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
+$('selStyle').value = store.style;
+$('selStyle').addEventListener('change', e => { store.style = e.target.value; saveStore(); ensureSet(false); });
+$('selTheme').addEventListener('change', e => applyTheme(e.target.value, true));
+
+['M','D','W'].forEach(L => {
+  $('tog' + L).addEventListener('click', () => {
+    store.opts[L.toLowerCase()] = !store.opts[L.toLowerCase()]; saveStore();
+    renderHeader(); ensureSet(false);
+  });
+});
+$('btnRotCCW').addEventListener('click', () => selected && rotatePiece(selected, -1));
+$('btnRot').addEventListener('click', () => selected && rotatePiece(selected, 1));
+$('btnFlip').addEventListener('click', () => selected && flipPiece(selected));
+$('fabRot').addEventListener('click', () => selected && rotatePiece(selected, 1));
+$('fabFlip').addEventListener('click', () => selected && flipPiece(selected));
+$('btnHint').addEventListener('click', hint);
+$('btnReset').addEventListener('click', () => {
+  pieces.forEach(p => p.placed = false); hideWin(); layout(); afterChange();
+});
+$('btnWinClose').addEventListener('click', () => { $('win').hidden = true; });
+stage.addEventListener('pointerdown', () => select(null));
+document.addEventListener('keydown', e => {
+  if (helpOpen){ if (e.key === 'Escape') closeHelp(); return; }
+  if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (!selected) return;
+  const k = e.key.toLowerCase();
+  if (k === 'q'){ rotatePiece(selected, -1); e.preventDefault(); }
+  else if (k === 'e'){ rotatePiece(selected, 1); e.preventDefault(); }
+  else if (k === 'w'){ flipPiece(selected); e.preventDefault(); }
+  else if (e.key === 'Escape') select(null);
+});
+let resizeRaf = 0;
+new ResizeObserver(() => { cancelAnimationFrame(resizeRaf); resizeRaf = requestAnimationFrame(layout); }).observe(wrap);
+
+/* =========================================================
+ * 启动
+ * ======================================================= */
+const urlTheme = new URLSearchParams(location.search).get('theme');
+const prefersDark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+renderHeader();
+updateHintBtn();
+refreshTodayCount();
+refreshGlobalStats();
+firstVisitHelp();
+(async () => {
+  await loadExternalThemes();   // 主题全部来自 theme/*.json，先加载再上色
+  renderThemeSelect();
+  // URL 指定 > 上次选择 > 深色系统用夜空 > 列表第一个
+  applyTheme(urlTheme || store.theme || (prefersDark ? 'night' : ''), false);
+  ensureSet(false);
+})();
+})();
+</script>
+</body>
+</html>
