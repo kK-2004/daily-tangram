@@ -626,6 +626,17 @@ function solverMain(d){
   const order = []; for (let i = 0; i < N; i++) if (isCover[i]) order.push(i);
   const used = new Uint8Array(P), sol = new Array(P), vis = new Int32Array(N), stack = new Int32Array(N);
   let stamp = 0, nodes = 0; const limit = d.limit || 3e6;
+  // 固定零件：棋盘上已放好的零件，原样保留，只求剩余部分
+  for (const f of d.fixed || []){
+    const o = transform(d.pieces[f.i], f.t % 4, f.t >= 4);
+    for (const [r, c] of o){
+      const k = (f.gy + r)*C + f.gx + c;
+      if (!isCover[k] || occ[k]) return {status:'none', nodes};
+      occ[k] = 1;
+    }
+    used[f.i] = 1; sol[f.i] = {t:f.t, gx:f.gx, gy:f.gy};
+  }
+  if (!compsOk()) return {status:'none', nodes};
   function compsOk(){
     stamp++;
     for (const id of order){
@@ -1235,16 +1246,31 @@ async function updateHintBtn(){
   b.textContent = left > 0 ? `提示（剩 ${left}）` : '提示已用完';
 }
 async function hint(){
-  const r = await getSolution();
-  if (r.status !== 'solved'){ toast('今天还没有找到解，无法提示'); return; }
-  const sol = r.solution;
-  const idx = pieces.findIndex((p, i) => curCells(p) !== solCells(i, sol));
+  // 优先保留棋盘上已放好的零件，从当前局面接着求解；当前摆法已无解时再退回参考答案纠正
+  const fixed = [];
+  pieces.forEach((p, i) => {
+    if (p.placed) fixed.push({ i, t: p.rot + (p.flip ? 4 : 0), gx: Math.round(p.x - BX), gy: Math.round(p.y - BY) });
+  });
+  let sol = null, deadEnd = false;
+  if (fixed.length){
+    const cover = coverKeys().map(k => k.split(',').map(Number));
+    const r = await solve({ pieces: pieces.map(p => p.base), cover, rows: ROWS, cols: COLS, limit: 3e6, fixed });
+    if (r.status === 'solved') sol = r.solution;
+    else deadEnd = r.status === 'none';
+  }
+  if (!sol){
+    const r = await getSolution();
+    if (r.status !== 'solved'){ toast('今天还没有找到解，无法提示'); return; }
+    sol = r.solution;
+  }
+  const idx = pieces.findIndex((p, i) => curCells(p) !== solCells(i, sol[i]));
   if (idx < 0){ toast('已经全部正确'); return; }
   const q = await HintProvider.consume(bjDay());
   updateHintBtn();
   if (!q.ok){ toast('今天的提示次数已用完'); return; }
+  if (deadEnd) toast('当前摆法拼不完，已按参考答案纠正一块');
   noteStart();
-  const target = new Set(solCells(idx, sol).split(';'));
+  const target = new Set(solCells(idx, sol[idx]).split(';'));
   pieces.forEach((p, i) => {
     if (i !== idx && p.placed && curCells(p).split(';').some(k => target.has(k))) p.placed = false;
   });
