@@ -39,6 +39,8 @@ jobs:
           fi
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # 首次部署自动开启 GitHub Pages
 
       - uses: actions/upload-pages-artifact@v3
         with:
