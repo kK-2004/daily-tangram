@@ -47,7 +47,7 @@
 }
 *{box-sizing:border-box}
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-html,body{margin:0;height:100%}
+html,body{margin:0;height:100%;touch-action:manipulation}
 body{
   background-color:var(--bg); background-image:var(--bg-art); background-attachment:fixed;
   color:var(--ink); font-family:var(--font-body); line-height:1.5; overflow:hidden;
@@ -115,7 +115,7 @@ button .k{font-size:11px;font-weight:700;opacity:.6;border:1px solid currentColo
   background:var(--panel);border:1.5px solid var(--panel-edge);
   border-radius:22px;padding:clamp(10px,2vw,22px);transition:background .3s;overflow:hidden;
 }
-.stage{position:relative;flex:none;margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.stage{isolation:isolate;position:relative;flex:none;margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
 .tray{
   position:absolute;border:2px dashed var(--line);border-radius:16px;
 }
@@ -148,6 +148,21 @@ button .k{font-size:11px;font-weight:700;opacity:.6;border:1px solid currentColo
 .piece.sel{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 7px var(--accent))}
 .piece.loose:not(.dragging){opacity:.82}
 
+/* ---------- 零件加载骨架屏 ---------- */
+.pieces-skeleton{position:absolute;inset:12px 12px 28px;display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:10px;
+  overflow:hidden;pointer-events:none}
+.pieces-skeleton[hidden]{display:none}
+.skeleton-piece{border-radius:8px;background:var(--panel-edge);opacity:.65}
+.skeleton-piece:nth-child(2n){clip-path:polygon(0 0,100% 0,100% 55%,60% 55%,60% 100%,0 100%)}
+.skeleton-piece:nth-child(3n){clip-path:polygon(0 0,55% 0,55% 45%,100% 45%,100% 100%,0 100%)}
+.pieces-skeleton::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(105deg,transparent 25%,var(--panel) 50%,transparent 75%);
+  transform:translateX(-100%);animation:shimmer 1.5s ease-in-out infinite}
+@keyframes shimmer{to{transform:translateX(100%)}}
+.wrap.is-loading #pieces{visibility:hidden}
+.wrap.is-loading .fabs{display:none}
+
 /* ---------- 移动端：选中零件时右侧浮现的操作按钮 ---------- */
 .fabs{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;
   flex-direction:column;gap:12px;z-index:60}
@@ -170,7 +185,7 @@ body.is-narrow #btnHelp.round{width:auto;min-width:0}
 
 /* ---------- 完成 ---------- */
 .win{
-  position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:50;
+  position:absolute;inset:0;display:grid;place-items:center;pointer-events:auto;z-index:50;
 }
 .win[hidden]{display:none}
 .win-card{
@@ -277,9 +292,15 @@ code{font-size:12.5px;background:var(--panel);border:1px solid var(--panel-edge)
     </div>
   </div>
 
-  <div class="wrap" id="wrap">
+  <div class="wrap is-loading" id="wrap" aria-busy="true">
     <div class="stage" id="stage">
-      <div class="tray" id="trayBox"><span>零件区</span></div>
+      <div class="tray" id="trayBox">
+        <div class="pieces-skeleton" id="piecesSkeleton" role="status" aria-label="正在加载零件">
+          <div class="skeleton-piece"></div><div class="skeleton-piece"></div><div class="skeleton-piece"></div>
+          <div class="skeleton-piece"></div><div class="skeleton-piece"></div><div class="skeleton-piece"></div>
+        </div>
+        <span>零件区</span>
+      </div>
       <div id="board"></div>
       <div id="ghost"></div>
       <div id="pieces"></div>
@@ -289,7 +310,7 @@ code{font-size:12.5px;background:var(--panel);border:1px solid var(--panel-edge)
       <button id="fabFlip" title="翻转" aria-label="翻转"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
     </div>
     <div class="win" id="win" hidden>
-      <div class="win-card">
+      <div class="win-card" role="dialog" aria-modal="true" aria-label="拼图完成">
         <b>拼好了！</b>
         <span id="winText"></span>
         <div class="ws" id="winStats" hidden></div>
@@ -726,7 +747,20 @@ const $ = id => document.getElementById(id);
 const stage = $('stage'), wrap = $('wrap'), boardEl = $('board'), piecesEl = $('pieces'), ghostEl = $('ghost'), trayBox = $('trayBox');
 let set = null, pieces = [], selected = null, drag = null, zTop = 10, winShown = false;
 let U = 50, wide = true, trayScale = 1, trayX = 0, trayY = 0, trayW = 0, stageWu = 0, stageHu = 0;
-let runStart = null, helpOpen = false;
+let runStart = null, helpOpen = false, piecesLoading = true;
+function setPiecesLoading(loading){
+  piecesLoading = loading;
+  wrap.classList.toggle('is-loading', loading);
+  wrap.setAttribute('aria-busy', String(loading));
+  $('piecesSkeleton').hidden = !loading;
+  if (loading){
+    if (drag) onCancel({pointerId:drag.id});
+    select(null); hideWin();
+  }
+  $('btnReset').disabled = loading;
+  updateHintBtn();
+  layout();
+}
 let BX = PAD; const BY = PAD;   // BX：棋盘在舞台里的横向起点（移动端舞台比棋盘宽时居中）
 
 function toast(msg){
@@ -864,7 +898,7 @@ function layout(){
     trayX = 0.12; trayW = stageWu - 0.24; trayY = PAD + ROWS + 0.45;
   }
   const boardH = ROWS + 0.44; // 棋盘底板外沿高度
-  const trayH = wide ? Math.max(boardH, packTray(boardH)) : Math.max(packTray(), 1);
+  const trayH = wide ? Math.max(boardH, packTray(boardH)) : Math.max(packTray(), piecesLoading ? 3.5 : 1);
   stageHu = Math.max(PAD + ROWS + PAD, trayY + trayH + PAD);
   U = Math.max(18, Math.min(66, availW / stageWu, availH / stageHu));
   stage.style.width = stageWu * U + 'px';
@@ -942,11 +976,11 @@ function makePieceEl(p){
   el.addEventListener('pointermove', onMove);
   el.addEventListener('pointerup', onUp);
   el.addEventListener('pointercancel', onCancel);
-  el.addEventListener('contextmenu', e => { e.preventDefault(); flipPiece(p); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); if (!piecesLoading && $('win').hidden) flipPiece(p); });
   piecesEl.appendChild(el);
 }
 function onDown(e, p){
-  if (e.button === 2) return;
+  if (e.button === 2 || piecesLoading || !$('win').hidden) return;
   e.preventDefault(); e.stopPropagation();
   noteStart();
   const wasSel = (selected === p);
@@ -1174,42 +1208,51 @@ async function fetchDailySet(style, mask){
 let ensureSeq = 0;
 async function ensureSet(forceNew){
   const ticket = ++ensureSeq;
-  const style = store.style, mask = maskKey();
-  // 1) 云端统一拼盘
-  const { set: pub, dbOk } = await fetchDailySet(style, mask);
-  if (ticket !== ensureSeq) return;
-  if (pub){ set = pub; loadPieces(); return; }
-  // 2) 连库成功但今日拼盘为空：本地生成一份先玩着，乐观锁上传
-  //    （ignoreDuplicates = 首写生效，谁先插入用谁的，绝不覆盖他人已发布的拼盘）
-  if (dbOk){
-    const s = generateSet();
-    if (s){
-      set = s; loadPieces();
-      try{
-        await SB.client().from('daily_puzzles')
-          .upsert([{ day: bjDay(), mask, style, pieces: s.pieces, solution: s.solution }],
-                  { onConflict: 'day,mask,style', ignoreDuplicates: true });
-        refreshStats();
-      }catch(e){ console.warn('拼盘上传失败（不影响本机游玩）：', e); }
-      return;
+  setPiecesLoading(true);
+  try{
+    const style = store.style, mask = maskKey();
+    // 1) 云端统一拼盘
+    const { set: pub, dbOk } = await fetchDailySet(style, mask);
+    if (ticket !== ensureSeq) return;
+    if (pub){ set = pub; loadPieces(); return; }
+    // 2) 连库成功但今日拼盘为空：本地生成一份先玩着，乐观锁上传
+    //    （ignoreDuplicates = 首写生效，谁先插入用谁的，绝不覆盖他人已发布的拼盘）
+    if (dbOk){
+      const s = generateSet();
+      if (s){
+        set = s; loadPieces();
+        try{
+          await SB.client().from('daily_puzzles')
+            .upsert([{ day: bjDay(), mask, style, pieces: s.pieces, solution: s.solution }],
+                    { onConflict: 'day,mask,style', ignoreDuplicates: true });
+          refreshStats();
+        }catch(e){ console.warn('拼盘上传失败（不影响本机游玩）：', e); }
+        return;
+      }
     }
+    // 3) 连库失败 / 未接入：本地生成，对今天无解就自动重新生成，直到有解
+    const k = style + '|' + mask;
+    const cover = coverKeys().map(c => c.split(',').map(Number));
+    let s = forceNew ? null : (store.sets[k] || null);
+    for (let i = 0; i < 8; i++){
+      const cand = s || generateSet();
+      if (!cand) break;
+      const r = await solve({ pieces: cand.pieces.map(p => p.cells), cover, rows: ROWS, cols: COLS, limit: 3e6 });
+      if (ticket !== ensureSeq) return;
+      if (r.status === 'solved' || r.status === 'timeout'){ s = cand; break; }
+      s = null; // 今天拼不出 → 自动换一套
+    }
+    if (ticket !== ensureSeq) return;
+    if (!s){ toast('生成拼盘失败，请重试'); return; }
+    store.sets[k] = s; saveStore();
+    set = s;
+    loadPieces();
+  }catch(e){
+    if (ticket === ensureSeq) toast('加载零件失败，请重试');
+    console.warn('拼盘加载失败', e);
+  }finally{
+    if (ticket === ensureSeq) setPiecesLoading(false);
   }
-  // 3) 连库失败 / 未接入：本地生成，对今天无解就自动重新生成，直到有解
-  const k = style + '|' + mask;
-  const cover = coverKeys().map(c => c.split(',').map(Number));
-  let s = forceNew ? null : (store.sets[k] || null);
-  for (let i = 0; i < 8; i++){
-    const cand = s || generateSet();
-    if (!cand) break;
-    const r = await solve({ pieces: cand.pieces.map(p => p.cells), cover, rows: ROWS, cols: COLS, limit: 3e6 });
-    if (r.status === 'solved' || r.status === 'timeout'){ s = cand; break; }
-    s = null; // 今天拼不出 → 自动换一套
-  }
-  if (ticket !== ensureSeq) return;
-  if (!s){ toast('生成拼盘失败，请重试'); return; }
-  store.sets[k] = s; saveStore();
-  set = s;
-  loadPieces();
 }
 function loadPieces(){
   piecesEl.innerHTML = ''; select(null); hideWin();
@@ -1222,7 +1265,7 @@ function loadPieces(){
       if (s.gx != null && canPlace(p, s.gx, s.gy)){ p.placed = true; p.x = BX + s.gx; p.y = BY + s.gy; }
     });
   }
-  layout(); checkWin(false);
+  setPiecesLoading(false); checkWin(false);
 }
 
 /* ---------- 提示 / 答案 ---------- */
@@ -1242,10 +1285,11 @@ function applySol(p, s){
 async function updateHintBtn(){
   const left = await HintProvider.left(bjDay());
   const b = $('btnHint');
-  b.disabled = left <= 0;
+  b.disabled = piecesLoading || left <= 0;
   b.textContent = left > 0 ? `提示（剩 ${left}）` : '提示已用完';
 }
 async function hint(){
+  if (piecesLoading) return;
   // 优先保留棋盘上已放好的零件，从当前局面接着求解；当前摆法已无解时再退回参考答案纠正
   const fixed = [];
   pieces.forEach((p, i) => {
@@ -1388,6 +1432,7 @@ $('fabRot').addEventListener('click', () => selected && rotatePiece(selected, 1)
 $('fabFlip').addEventListener('click', () => selected && flipPiece(selected));
 $('btnHint').addEventListener('click', hint);
 $('btnReset').addEventListener('click', () => {
+  if (piecesLoading) return;
   pieces.forEach(p => p.placed = false); hideWin(); layout(); afterChange();
 });
 $('btnWinClose').addEventListener('click', () => { $('win').hidden = true; });
@@ -1395,7 +1440,7 @@ stage.addEventListener('pointerdown', () => select(null));
 document.addEventListener('keydown', e => {
   if (helpOpen){ if (e.key === 'Escape') closeHelp(); return; }
   if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
-  if (!selected) return;
+  if (piecesLoading || !$('win').hidden || !selected) return;
   const k = e.key.toLowerCase();
   if (k === 'q'){ rotatePiece(selected, -1); e.preventDefault(); }
   else if (k === 'e'){ rotatePiece(selected, 1); e.preventDefault(); }
@@ -1411,7 +1456,7 @@ new ResizeObserver(() => { cancelAnimationFrame(resizeRaf); resizeRaf = requestA
 const urlTheme = new URLSearchParams(location.search).get('theme');
 const prefersDark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
 renderHeader();
-updateHintBtn();
+setPiecesLoading(true);
 refreshStats();
 setInterval(refreshStats, 5 * 60 * 1000);
 firstVisitHelp();
